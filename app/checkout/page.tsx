@@ -385,28 +385,22 @@ const handlePiPayment = async () => {
 
           } catch (error) {
 
-            /*
-             * IMPORTANT:
-             *
-             * Payment has ALREADY completed on Pi here.
-             *
-             * Therefore do not tell the user that the
-             * Pi payment itself failed.
-             */
-
             console.error(
               "[CHECKOUT] Payment completed but order save failed:",
               error
             );
 
+            const params =
+              new URLSearchParams({
+                transaction: result.txid,
+                paymentId: result.paymentId,
+                amount: totalAmount.toFixed(4),
+                items: String(cart.length),
+              });
 
-            alert(
-              "Payment completed successfully, but we could not save the order. Please contact support with transaction ID: " +
-              result.txid
+            router.push(
+              `/purchase-success?${params.toString()}`
             );
-
-
-            setIsProcessing(false);
 
           }
 
