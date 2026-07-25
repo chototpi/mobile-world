@@ -23,17 +23,14 @@ import {
 } from "@/components/ui/card";
 
 import {
+  pay,
+  type PaymentCompleteResult
+} from "@/lib/pi-payment";
+
+import {
   Alert,
   AlertDescription
 } from "@/components/ui/alert";
-
-import {
-  PRODUCT_CONFIG
-} from "@/lib/product-config";
-
-import {
-  usePiAuth
-} from "@/contexts/pi-auth-context";
 
 interface CartItem{
   id:string;
@@ -44,19 +41,12 @@ interface CartItem{
   productId:string;
   image?:string;
   category?:string;
-  piProductId?:string;
 }
 
 export default function CheckoutPage(){
 
   const router=
     useRouter();
-
-  const authContext=
-    usePiAuth();
-
-  const products=
-    authContext?.products||[];
 
   const [cart,setCart]=
     useState<CartItem[]>([]);
@@ -178,169 +168,313 @@ export default function CheckoutPage(){
 const handlePiPayment = async () => {
 
   if (cart.length === 0) {
-
     alert("Your cart is empty");
-
     return;
   }
 
+  if (isProcessing) {
+    return;
+  }
+
+  const uid =
+    localStorage.getItem("uid");
+
+  const username =
+    localStorage.getItem("pi_username");
+
+  if (!uid || !username) {
+    alert("User not logged in");
+    return;
+  }
+
+  const totalAmount =
+    Number(total.toFixed(4));
+
+  if (
+    !Number.isFinite(totalAmount) ||
+    totalAmount <= 0
+  ) {
+    alert("Invalid payment amount");
+    return;
+  }
+
+  setIsProcessing(true);
+
   try {
 
-    setIsProcessing(true);
+    // ================================================
+    // PAYMENT METADATA
+    //
+    // This describes the order.
+    // Backend must eventually validate product prices
+    // independently before approving the payment.
+    // ================================================
 
-    const totalAmount =
-      subtotal + tax;
+    const metadata = {
 
-    const uid =
-      localStorage.getItem(
-        "uid"
-      );
+      type: "mobile_world_purchase",
 
-    const username =
-      localStorage.getItem(
-        "pi_username"
-      );
+      uid,
 
-    if (!uid || !username) {
+      username,
 
-      throw new Error(
-        "User not logged in"
-      );
-    }
+      items: cart.map((item) => ({
+        productId:
+          item.productId || item.id,
 
-    if (
-      typeof window === "undefined" ||
-      !window.SDKLite
-    ) {
-
-      throw new Error(
-        "Pi SDK not initialized"
-      );
-    }
-
-    const sdk =
-      await window.SDKLite.init();
-
-    if (!sdk) {
-
-      throw new Error(
-        "Failed to initialize Pi SDK"
-      );
-    }
-
-    // first cart item
-    const firstItem =
-      cart[0];
-
-    const productConfigKey =
-      `PRODUCT_${firstItem.piProductId}` as keyof typeof PRODUCT_CONFIG;
-
-    const configProductId =
-      PRODUCT_CONFIG[
-        productConfigKey
-      ];
-
-    const foundProduct =
-      products.find(
-        (p) =>
-          p.id ===
-          configProductId
-      );
-
-    if (!foundProduct) {
-
-      throw new Error(
-        "Pi product not found"
-      );
-    }
-
-    const result =
-      await sdk.makePurchase(
-        foundProduct.slug
-      );
-
-    // save orders after Pi payment
-for (const item of cart) {
-
-  await fetch(
-    "https://payofpi.click/payment-backend/api-proxy/buy-product",
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type":
-          "application/json",
-      },
-
-      body: JSON.stringify({
-
-        uid,
-
-        username,
-
-        product_id:
-          item.productId ||
-          item.id,
-
-        product_name:
+        name:
           item.name,
 
-        amount:
-          Number(item.price) *
+        quantity:
           Number(item.quantity),
 
-        quantity:
-          item.quantity,
+        price:
+          Number(item.price),
+      })),
 
-        payment_method:
-          "pi",
+      itemCount:
+        cart.reduce(
+          (sum, item) =>
+            sum + Number(item.quantity),
+          0
+        ),
 
-        txid:
-          result.txid,
-      }),
-    }
-  );
-}
+      amount:
+        totalAmount,
+    };
 
-    localStorage.setItem(
-      "cart",
-      JSON.stringify([])
-    );
 
-    router.push(
-      `/purchase-success?transaction=${result.txid}&amount=${totalAmount.toFixed(
-        4
-      )}&items=${cart.length}`
-    );
+    // ================================================
+    // CREATE PI U2A PAYMENT
+    // ================================================
 
-  } catch (err: any) {
+    await pay({
+
+      amount:
+        totalAmount,
+
+      memo:
+        `Mobile World purchase - ${cart.length} item(s)`,
+
+      metadata,
+
+
+      // ==============================================
+      // SUCCESS
+      //
+      // This callback only runs after our backend
+      // successfully calls Pi /complete.
+      // ==============================================
+
+      onComplete:
+        async (
+          result: PaymentCompleteResult
+        ) => {
+
+          try {
+
+            console.log(
+              "[CHECKOUT] Pi payment completed:",
+              result
+            );
+
+
+            // ==========================================
+            // SAVE ORDERS
+            // ==========================================
+
+            for (const item of cart) {
+
+              const response =
+                await fetch(
+                  "https://payofpi.click/payment-backend/api-proxy/buy-product",
+                  {
+                    method: "POST",
+
+                    headers: {
+                      "Content-Type":
+                        "application/json",
+                    },
+
+                    body: JSON.stringify({
+
+                      uid,
+
+                      username,
+
+                      product_id:
+                        item.productId ||
+                        item.id,
+
+                      product_name:
+                        item.name,
+
+                      amount:
+                        Number(item.price) *
+                        Number(item.quantity),
+                        quantity:
+                        Number(item.quantity),
+
+                      payment_method:
+                        "pi",
+
+                      payment_id:
+                        result.paymentId,
+
+                      txid:
+                        result.txid,
+                    }),
+                  }
+                );
+
+
+              const data =
+                await response.json();
+
+
+              if (
+                !response.ok ||
+                !data.success
+              ) {
+
+                throw new Error(
+                  data.error ||
+                  `Failed to save order: ${item.name}`
+                );
+
+              }
+
+            }
+
+
+            // ==========================================
+            // CLEAR CART
+            // ==========================================
+
+            localStorage.setItem(
+              "cart",
+              JSON.stringify([])
+            );
+
+
+            // ==========================================
+            // SUCCESS PAGE
+            // ==========================================
+
+            const params =
+              new URLSearchParams({
+
+                transaction:
+                  result.txid,
+
+                paymentId:
+                  result.paymentId,
+
+                amount:
+                  totalAmount.toFixed(4),
+
+                items:
+                  String(cart.length),
+
+              });
+
+
+            router.push(
+              `/purchase-success?${params.toString()}`
+            );
+
+          } catch (error) {
+
+            /*
+             * IMPORTANT:
+             *
+             * Payment has ALREADY completed on Pi here.
+             *
+             * Therefore do not tell the user that the
+             * Pi payment itself failed.
+             */
+
+            console.error(
+              "[CHECKOUT] Payment completed but order save failed:",
+              error
+            );
+
+
+            alert(
+              "Payment completed successfully, but we could not save the order. Please contact support with transaction ID: " +
+              result.txid
+            );
+
+
+            setIsProcessing(false);
+
+          }
+
+        },
+
+
+      // ==============================================
+      // CANCEL
+      // ==============================================
+
+      onCancel:
+        (paymentId) => {
+
+          console.log(
+            "[CHECKOUT] Payment cancelled:",
+            paymentId
+          );
+
+          setIsProcessing(false);
+
+          alert(
+            "Payment cancelled"
+          );
+
+        },
+
+
+      // ==============================================
+      // ERROR
+      // ==============================================
+
+      onError:
+        (error) => {
+
+          console.error(
+            "[CHECKOUT] Pi payment error:",
+            error
+          );
+
+          setIsProcessing(false);
+
+          alert(
+            error.message ||
+            "Pi payment failed"
+          );
+
+        },
+
+    });
+    } catch (error) {
 
     console.error(
-      "[PI PAYMENT ERROR]",
-      err
+      "[CHECKOUT] Failed to start Pi payment:",
+      error
     );
 
-    if (
-      err?.code ===
-      "purchase_cancelled"
-    ) {
-
-      alert(
-        "Payment cancelled"
-      );
-
-    } else {
-
-      alert(
-        err?.message ||
-        "Payment failed"
-      );
-    }
-
-  } finally {
 
     setIsProcessing(false);
+
+
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Unable to start Pi payment"
+    );
+
   }
+
 };
 
 // BALANCE PAYMENT

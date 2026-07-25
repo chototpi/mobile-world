@@ -3,168 +3,400 @@
 import React, {
   createContext,
   useContext,
-  useState,
   useEffect,
+  useState,
   type ReactNode,
 } from "react";
-import { PI_NETWORK_CONFIG } from "@/lib/system-config";
+
 import { piService } from "@/lib/pi-service";
-import type {
-  Product,
-  SDKLiteInstance,
-  UserPurchaseBalance,
-} from "@/lib/sdklite-types";
+
+
+// =====================================================
+// TYPES
+// =====================================================
 
 interface PiAuthContextType {
   isAuthenticated: boolean;
+  isInitializing: boolean;
+
   authMessage: string;
   hasError: boolean;
-  sdk: SDKLiteInstance | null;
-  products: Product[] | null;
-  restoredPurchases: UserPurchaseBalance[] | null;
+
   username: string | null;
+  uid: string | null;
+  accessToken: string | null;
+
   reinitialize: () => Promise<void>;
 }
 
-const PiAuthContext = createContext<PiAuthContextType | undefined>(undefined);
 
-// Currently unused while the payment flow is disabled (see initialize()).
-const loadSDKLite = (): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    if (typeof window.SDKLite !== "undefined") {
-      resolve();
-      return;
-    }
+// =====================================================
+// CONTEXT
+// =====================================================
 
-    const script = document.createElement("script");
-    if (!PI_NETWORK_CONFIG.SDK_LITE_URL) {
-      reject(new Error("SDKLite URL is not set"));
-      return;
-    }
-    script.src = PI_NETWORK_CONFIG.SDK_LITE_URL;
-    script.async = true;
+const PiAuthContext =
+  createContext<PiAuthContextType | undefined>(
+    undefined
+  );
 
-    script.onload = () => {
-      console.log("SDKLite script loaded successfully");
-      resolve();
-    };
 
-    script.onerror = () => {
-      console.error("Failed to load SDKLite script");
-      reject(new Error("Failed to load SDKLite script"));
-    };
+// =====================================================
+// PROVIDER
+// =====================================================
 
-    document.head.appendChild(script);
-  });
-};
+export function PiAuthProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
 
-export function PiAuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authMessage, setAuthMessage] = useState("Initializing Pi Network...");
-  const [hasError, setHasError] = useState(false);
-  const [sdk, setSdk] = useState<SDKLiteInstance | null>(null);
-  const [products, setProducts] = useState<Product[] | null>(null);
-  const [restoredPurchases, setRestoredPurchases] = useState<
-    UserPurchaseBalance[] | null
-  >(null);
-  const [username, setUsername] = useState<string | null>(null);
+  const [
+    isAuthenticated,
+    setIsAuthenticated,
+  ] = useState(false);
 
-  // Currently unused while the payment flow is disabled (see initialize()).
-  // Kept so it's a one-line change to wire back in when payments return.
-  const fetchProducts = async (sdkInstance: SDKLiteInstance): Promise<void> => {
-    try {
-      const { products } = await sdkInstance.state.products();
-      setProducts(products);
-    } catch (e) {
-      console.error("Failed to load products:", e);
-      setProducts([]);
-    }
-  };
+  const [
+    isInitializing,
+    setIsInitializing,
+  ] = useState(true);
+
+  const [
+    authMessage,
+    setAuthMessage,
+  ] = useState(
+    "Initializing Pi Network..."
+  );
+
+  const [
+    hasError,
+    setHasError,
+  ] = useState(false);
+
+  const [
+    username,
+    setUsername,
+  ] = useState<string | null>(null);
+
+  const [
+    uid,
+    setUid,
+  ] = useState<string | null>(null);
+
+  const [
+    accessToken,
+    setAccessToken,
+  ] = useState<string | null>(null);
+
+
+  // ===================================================
+  // INITIALIZE PI AUTH
+  // ===================================================
 
   const initialize = async () => {
-    console.log("[v0] Initialize called");
+
+    console.log(
+      "[PiAuth] Initialize"
+    );
+
+    setIsInitializing(true);
     setHasError(false);
-    setRestoredPurchases(null);
+
+    setAuthMessage(
+      "Connecting to Pi Network..."
+    );
+
+
     try {
-      // Call Service: piService.login() handles loading the Pi SDK,
-      // awaiting Pi.init() fully as a Promise, then calling
-      // Pi.authenticate() with the given scopes. "payments" flow is
-      // disabled app-wide right now, so only request "username".
-      setAuthMessage("Authenticating with Pi...");
-      console.log("[v0] Calling piService.login()");
-      const loginResult = await piService.login(["username"]);
 
-      if (!loginResult.success || !loginResult.accessToken) {
-        throw new Error(loginResult.error || "Authentication failed");
+      // ===============================================
+      // 1. PI INIT + AUTHENTICATE
+      //
+      // piService.login() performs:
+      //
+      // await Pi.init(...)
+      //
+      // then:
+      //
+      // Pi.authenticate(
+      //   ["username", "payments"],
+      //   onIncompletePaymentFound
+      // )
+      // ===============================================
+
+      console.log(
+        "[PiAuth] Authenticating..."
+      );
+
+      setAuthMessage(
+        "Authenticating with Pi..."
+      );
+
+
+      const loginResult =
+        await piService.login();
+
+
+      if (
+        !loginResult.success ||
+        !loginResult.accessToken ||
+        !loginResult.user
+      ) {
+
+        throw new Error(
+          loginResult.error ||
+          "Pi authentication failed"
+        );
+
       }
 
-      // Token Exchange: send the accessToken to our backend, which calls
-      // GET https://api.minepi.com/v2/me with it and only reports success
-      // once Pi confirms the token is valid. The session is only
-      // established after that server-side check passes.
-      setAuthMessage("Verifying with server...");
-      console.log("[v0] Verifying access token with backend");
-      const verifyResult = await piService.verifyWithBackend(loginResult.accessToken);
 
-      if (!verifyResult.success || !verifyResult.user) {
-        throw new Error(verifyResult.error || "Server rejected Pi access token");
+      console.log(
+        "[PiAuth] Pi authentication successful:",
+        loginResult.user
+      );
+
+
+      // ===============================================
+      // 2. SERVER VERIFICATION
+      //
+      // Backend verifies accessToken against:
+      //
+      // GET /v2/me
+      // Authorization: Bearer accessToken
+      //
+      // Client identity is NOT trusted until this
+      // succeeds.
+      // ===============================================
+
+      setAuthMessage(
+        "Verifying Pi account..."
+      );
+
+
+      const verifyResult =
+        await piService.verifyWithBackend(
+          loginResult.accessToken
+        );
+
+
+      if (
+        !verifyResult.success ||
+        !verifyResult.user
+      ) {
+
+        throw new Error(
+          verifyResult.error ||
+          "Server rejected Pi account"
+        );
+
       }
 
-      // UI Update: transition from "Guest" to "User" state using the
-      // server-verified username as the source of truth.
-      const piUsername = verifyResult.user.username;
-      console.log("[v0] Backend verified user:", verifyResult.user);
-      setUsername(piUsername);
-      localStorage.setItem('pi_username', piUsername);
-      localStorage.setItem('uid', verifyResult.user.uid);
-      localStorage.setItem('accessToken', loginResult.accessToken);
 
-      // Payment flow disabled for now: no SDKLite load/init, no product
-      // fetch, no purchase restore. sdk/products/restoredPurchases stay at
-      // their initial null values so pages that read them (buy-now-button,
-      // checkout, etc.) fall back to empty state instead of crashing.
-      console.log("[v0] Login-only flow complete (payments disabled)");
+      console.log(
+        "[PiAuth] Server verified:",
+        verifyResult.user
+      );
+
+
+      // ===============================================
+      // 3. VERIFIED USER
+      // ===============================================
+
+      const verifiedUsername =
+        verifyResult.user.username;
+
+      const verifiedUid =
+        verifyResult.user.uid;
+
+
+      setUsername(
+        verifiedUsername
+      );
+
+      setUid(
+        verifiedUid
+      );
+
+      setAccessToken(
+        loginResult.accessToken
+      );
+
+
+      // ===============================================
+      // 4. LOCAL SESSION CACHE
+      //
+      // These are convenience values only.
+      // Backend must never trust them for payment
+      // authorization.
+      // ===============================================
+
+      localStorage.setItem(
+        "pi_username",
+        verifiedUsername
+      );
+
+      localStorage.setItem(
+        "uid",
+        verifiedUid
+      );
+
+      localStorage.setItem(
+        "accessToken",
+        loginResult.accessToken
+      );
+
+
+      // ===============================================
+      // 5. AUTH READY
+      // ===============================================
+
       setIsAuthenticated(true);
+
+      setAuthMessage(
+        "Connected to Pi Network"
+      );
+
+
+      console.log(
+        "[PiAuth] Authentication complete"
+      );
+
     } catch (err) {
-      console.error("[v0] Pi authentication failed:", err);
+
+      console.error(
+        "[PiAuth] Authentication failed:",
+        err
+      );
+
+
+      setIsAuthenticated(false);
+
       setHasError(true);
+
+
       setAuthMessage(
         err instanceof Error
           ? err.message
-          : "Authentication failed. Please try again.",
+          : "Authentication failed. Please try again."
       );
+
+    } finally {
+
+      setIsInitializing(false);
+
     }
+
   };
+
+
+  // ===================================================
+  // START AUTH
+  // ===================================================
 
   useEffect(() => {
-    // Try to restore username from localStorage
-    const savedUsername = localStorage.getItem('pi_username');
+
+    // -----------------------------------------------
+    // Restore UI state while Pi authentication runs.
+    //
+    // This does NOT mean authenticated.
+    // -----------------------------------------------
+
+    const savedUsername =
+      localStorage.getItem(
+        "pi_username"
+      );
+
+    const savedUid =
+      localStorage.getItem(
+        "uid"
+      );
+
+
     if (savedUsername) {
-      setUsername(savedUsername);
+      setUsername(
+        savedUsername
+      );
     }
+
+    if (savedUid) {
+      setUid(
+        savedUid
+      );
+    }
+    // -----------------------------------------------
+    // Actual authentication
+    // -----------------------------------------------
+
     initialize();
+
   }, []);
 
-  const value: PiAuthContextType = {
-    isAuthenticated,
-    authMessage,
-    hasError,
-    sdk,
-    products,
-    restoredPurchases,
-    username,
-    reinitialize: initialize,
-  };
+
+  // ===================================================
+  // CONTEXT VALUE
+  // ===================================================
+
+  const value:
+    PiAuthContextType = {
+
+      isAuthenticated,
+
+      isInitializing,
+
+      authMessage,
+
+      hasError,
+
+      username,
+
+      uid,
+
+      accessToken,
+
+      reinitialize:
+        initialize,
+
+    };
+
 
   return (
-    <PiAuthContext.Provider value={value}>{children}</PiAuthContext.Provider>
+
+    <PiAuthContext.Provider
+      value={value}
+    >
+
+      {children}
+
+    </PiAuthContext.Provider>
+
   );
+
 }
 
+
+// =====================================================
+// HOOK
+// =====================================================
+
 export function usePiAuth() {
-  const context = useContext(PiAuthContext);
-  if (context === undefined) {
-    throw new Error("usePiAuth must be used within a PiAuthProvider");
+
+  const context =
+    useContext(
+      PiAuthContext
+    );
+
+
+  if (
+    context === undefined
+  ) {
+
+    throw new Error(
+      "usePiAuth must be used within a PiAuthProvider"
+    );
+
   }
+
+
   return context;
+
 }

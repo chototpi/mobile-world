@@ -1,262 +1,502 @@
 /**
- * Pi Network Payment Integration Module
+ * Mobile World - Pi Network U2A Payment
  *
- * Provides a global payment system for Pi Network transactions with:
- * - Automatic payment approval and completion
- * - On-chain validation
- * - Reward processing
- * - Incomplete payment recovery
+ * Flow:
+ *
+ * Pi.init()
+ *   ↓
+ * Pi.createPayment()
+ *   ↓
+ * onReadyForServerApproval
+ *   ↓
+ * Backend -> Pi /approve
+ *   ↓
+ * User signs payment
+ *   ↓
+ * onReadyForServerCompletion
+ *   ↓
+ * Backend -> Pi /complete
+ *   ↓
+ * Payment success
  */
 
-import { api } from "@/lib/api";
-import { BACKEND_URLS, PI_BLOCKCHAIN_URLS } from "@/lib/system-config";
+import { piService } from "@/lib/pi-service";
 
-// ============================================================================
-// Type Definitions
-// ============================================================================
+
+// =====================================================
+// CONFIG
+// =====================================================
+
+const PI_BACKEND_URL =
+  "https://pi-backend-zeta.vercel.app";
+
+
+// =====================================================
+// TYPES
+// =====================================================
 
 export type PaymentMetadata = {
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
-export type PaymentOptions = {
-  amount: number;
-  memo?: string;
-  metadata: PaymentMetadata;
-  onComplete?: (metadata: PaymentMetadata) => void;
-  onError?: (error: Error, payment?: PiPayment) => void;
-};
-
-export type PiPaymentData = {
-  amount: number;
-  memo: string;
-  metadata: PaymentMetadata;
-};
-
-export type PiPaymentCallbacks = {
-  onReadyForServerApproval: (paymentId: string) => void;
-  onReadyForServerCompletion: (paymentId: string, txid: string) => void;
-  onCancel: (paymentId: string) => void;
-  onError: (error: Error, payment?: PiPayment) => void;
-};
-
-export type PiPayment = {
+export interface PiPayment {
   identifier: string;
+
   amount: number;
-  metadata: PaymentMetadata;
-  transaction: {
-    txid: string;
+
+  memo?: string;
+
+  metadata?: PaymentMetadata;
+
+  transaction?: {
+    txid?: string;
   };
-};
-
-export type BlockchainTransactionResponse = {
-  _embedded: {
-    records: Array<{ amount: string }>;
-  };
-};
-
-// ============================================================================
-// Global Window Declaration
-// ============================================================================
-
-declare global {
-  interface Window {
-    Pi: {
-      init: (config: { version: string; sandbox?: boolean }) => Promise<void>;
-      authenticate: (
-        scopes: string[],
-        checkIncompletePayments: (payment: PiPayment) => Promise<void>
-      ) => Promise<{
-        accessToken: string;
-        user: { uid: string; username: string };
-      }>;
-      createPayment: (
-        paymentData: PiPaymentData,
-        callbacks: PiPaymentCallbacks
-      ) => void;
-      getIncompletePayments: () => Promise<PiPayment[]>;
-    };
-    pay: (options: PaymentOptions) => Promise<void>;
-  }
 }
 
-// ============================================================================
-// Configuration
-// ============================================================================
+export interface PaymentOptions {
+  amount: number;
 
-let rewardHandler: ((metadata: PaymentMetadata) => void) | null = null;
+  memo: string;
 
-export const setPaymentRewardHandler = (
-  handler: (metadata: PaymentMetadata) => void
-): void => {
-  rewardHandler = handler;
-};
+  metadata: PaymentMetadata;
 
-// ============================================================================
-// Payment Validation
-// ============================================================================
+  onComplete?: (
+    result: PaymentCompleteResult
+  ) => void;
 
-const checkPaymentValid = async (
-  txid: string,
-  expectedAmount: number
-): Promise<boolean> => {
+  onCancel?: (
+    paymentId: string
+  ) => void;
+
+  onError?: (
+    error: Error,
+    payment?: PiPayment
+  ) => void;
+}
+
+export interface PaymentCompleteResult {
+  paymentId: string;
+
+  txid: string;
+
+  payment?: unknown;
+}
+
+interface PiPaymentData {
+  amount: number;
+
+  memo: string;
+
+  metadata: PaymentMetadata;
+}
+
+interface PiPaymentCallbacks {
+
+  onReadyForServerApproval:
+    (
+      paymentId: string
+    ) => void;
+
+  onReadyForServerCompletion:
+    (
+      paymentId: string,
+      txid: string
+    ) => void;
+
+  onCancel:
+    (
+      paymentId: string
+    ) => void;
+
+  onError:
+    (
+      error: Error,
+      payment?: PiPayment
+    ) => void;
+}
+
+
+// =====================================================
+// WINDOW TYPE
+// =====================================================
+
+declare global {
+
+  interface Window {
+
+    Pi: {
+
+      init: (
+        config: {
+          version: string;
+          sandbox?: boolean;
+        }
+      ) => Promise<void>;
+
+      authenticate: (
+        scopes: string[],
+
+        onIncompletePaymentFound:
+          (
+            payment: PiPayment
+          ) => Promise<void>
+
+      ) => Promise<{
+        accessToken: string;
+
+        user: {
+          uid: string;
+          username: string;
+        };
+      }>;
+
+      createPayment: (
+        paymentData: PiPaymentData,
+
+        callbacks: PiPaymentCallbacks
+
+      ) => void;
+    };
+
+  }
+
+}
+
+
+// =====================================================
+// RESPONSE HELPER
+// =====================================================
+
+async function readResponse(
+  response: Response
+): Promise<any> {
+
+  const text =
+    await response.text();
+
+
+  if (!text) {
+
+    return {};
+
+  }
+
+
   try {
-    const { data, status } = await api.get<string>(
-      PI_BLOCKCHAIN_URLS.GET_TRANSACTION(txid)
+
+    return JSON.parse(text);
+
+  } catch {
+
+    return {
+      raw: text,
+    };
+
+  }
+
+}
+
+
+// =====================================================
+// APPROVE PAYMENT
+// =====================================================
+async function approvePayment(
+  paymentId: string
+): Promise<void> {
+
+  console.log(
+    "[PiPayment] Server approval:",
+    paymentId
+  );
+
+
+  const response =
+    await fetch(
+      `${PI_BACKEND_URL}/pi/payments/${encodeURIComponent(
+        paymentId
+      )}/approve`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+      }
     );
-    const parsedData: BlockchainTransactionResponse =
-      typeof data === "string" ? JSON.parse(data) : data;
 
-    if (status !== 200) return false;
 
-    const records = parsedData._embedded?.records;
-    if (!records || records.length === 0) return false;
+  const data =
+    await readResponse(
+      response
+    );
 
-    const onchainAmount = parseFloat(records[0].amount);
-    const isValid = onchainAmount >= expectedAmount;
 
-    if (!isValid) {
-      console.log("Payment validation failed:", {
-        onchainAmount,
-        expectedAmount,
-      });
-    }
+  if (
+    !response.ok ||
+    !data?.success
+  ) {
 
-    return isValid;
-  } catch (error) {
-    console.error("Failed to validate payment on blockchain:", error);
-    return false;
+    console.error(
+      "[PiPayment] Approval rejected:",
+      data
+    );
+
+
+    throw new Error(
+      data?.error ||
+      "Server failed to approve payment"
+    );
+
   }
-};
 
-// ============================================================================
-// Payment Completion
-// ============================================================================
 
-const completePaymentWithReward = async (
-  payment: PiPayment,
-  txidFromUser: string
-): Promise<void> => {
-  try {
-    console.log("[v0] Completing payment with reward for:", payment.identifier);
-    
-    // Try to validate on blockchain
-    try {
-      const isPaymentValid = await checkPaymentValid(
-        txidFromUser,
-        payment.amount
-      );
+  console.log(
+    "[PiPayment] Payment approved:",
+    paymentId
+  );
 
-      if (!isPaymentValid) {
-        console.warn("[v0] Payment validation failed: amount mismatch, but continuing");
-      }
-    } catch (validationError) {
-      console.warn("[v0] Blockchain validation not available, continuing:", validationError);
+}
+
+
+// =====================================================
+// COMPLETE PAYMENT
+// =====================================================
+
+async function completePayment(
+  paymentId: string,
+  txid: string
+): Promise<PaymentCompleteResult> {
+
+  console.log(
+    "[PiPayment] Server completion:",
+    {
+      paymentId,
+      txid,
     }
+  );
 
-    // Try to complete on backend
-    try {
-      const { status } = await api.post(
-        BACKEND_URLS.COMPLETE_PAYMENT(payment.identifier),
-        { txid: payment.transaction.txid }
-      );
 
-      if (status === 200) {
-        console.log("[v0] Backend completion successful");
-        if (rewardHandler) {
-          rewardHandler(payment.metadata);
-        }
+  const response =
+    await fetch(
+      `${PI_BACKEND_URL}/pi/payments/${encodeURIComponent(
+        paymentId
+      )}/complete`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          txid,
+        }),
       }
-    } catch (backendError) {
-      console.warn("[v0] Backend completion not available, continuing:", backendError);
-      // Backend not available, but payment is still valid
-      if (rewardHandler) {
-        rewardHandler(payment.metadata);
-      }
-    }
-  } catch (error) {
-    console.error("[v0] Failed to complete payment:", error);
-    throw error;
+    );
+
+
+  const data =
+    await readResponse(
+      response
+    );
+
+
+  if (
+    !response.ok ||
+    !data?.success
+  ) {
+
+    console.error(
+      "[PiPayment] Completion rejected:",
+      data
+    );
+
+
+    throw new Error(
+      data?.error ||
+      "Server failed to complete payment"
+    );
+
   }
-};
 
-// ============================================================================
-// Payment Callbacks
-// ============================================================================
 
-const createPaymentCallbacks = (
+  console.log(
+    "[PiPayment] Payment completed:",
+    paymentId
+  );
+
+
+  return {
+    paymentId,
+
+    txid,
+
+    payment:
+      data.payment,
+  };
+
+}
+
+
+// =====================================================
+// CREATE CALLBACKS
+// =====================================================
+
+function createPaymentCallbacks(
   options: PaymentOptions
-): PiPaymentCallbacks => {
-  const onReadyForServerApproval = async (paymentId: string): Promise<void> => {
-    try {
-      console.log("[v0] Payment ready for approval:", paymentId);
-      // Try to call backend approval, but don't fail if not available
-      try {
-        await api.post(BACKEND_URLS.APPROVE_PAYMENT(paymentId));
-        console.log("[v0] Backend approval successful");
-      } catch (backendError) {
-        console.warn("[v0] Backend approval not available, continuing:", backendError);
-      }
-    } catch (error) {
-      console.error("Failed to approve payment:", error);
-    }
-  };
+): PiPaymentCallbacks {
 
-  const onReadyForServerCompletion = async (
-    paymentId: string,
-    txid: string
-  ): Promise<void> => {
-    try {
-      console.log("[v0] Payment ready for completion:", paymentId, "txid:", txid);
-      
-      // Try backend completion first
-      try {
-        const { data } = await api.get<PiPayment>(
-          BACKEND_URLS.GET_PAYMENT(paymentId)
-        );
-        const currentPayment = data;
+  // ---------------------------------------------------
+  // APPROVAL
+  // ---------------------------------------------------
 
-        const txidMismatch = currentPayment.transaction.txid !== txid;
-        if (txidMismatch) {
-          console.error("Transaction ID mismatch detected");
-          return;
+  const onReadyForServerApproval =
+    (
+      paymentId: string
+    ): void => {
+
+      console.log(
+        "[PiPayment] Ready for approval:",
+        paymentId
+      );
+
+
+      approvePayment(
+        paymentId
+      ).catch(
+        (error) => {
+
+          console.error(
+            "[PiPayment] Approval failed:",
+            error
+          );
+
+
+          options.onError?.(
+            error instanceof Error
+              ? error
+              : new Error(
+                  "Payment approval failed"
+                )
+          );
+
         }
+      );
 
-        await completePaymentWithReward(currentPayment, txid);
-        console.log("[v0] Backend completion successful");
-      } catch (backendError) {
-        console.warn("[v0] Backend completion not available, using local completion:", backendError);
-        // If backend is not available, use local completion
-        // This allows testing without a full backend
-      }
+    };
 
-      // Call onComplete callback regardless
-      console.log("[v0] Calling onComplete callback with metadata:", options.metadata);
-      if (options.onComplete) {
-        options.onComplete(options.metadata);
-      }
-    } catch (error) {
-      console.error("Failed to complete payment:", error);
-      if (options.onError) {
-        options.onError(
-          error instanceof Error
-            ? error
-            : new Error("Payment completion failed")
+
+  // ---------------------------------------------------
+  // COMPLETION
+  // ---------------------------------------------------
+
+  const onReadyForServerCompletion =
+    (
+      paymentId: string,
+      txid: string
+    ): void => {
+
+      console.log(
+        "[PiPayment] Ready for completion:",
+        {
+          paymentId,
+          txid,
+        }
+      );
+
+
+      completePayment(
+        paymentId,
+        txid
+      )
+        .then(
+          (result) => {
+
+            /*
+             * THIS is the success point.
+             *
+             * We do not call onComplete before the
+             * backend successfully completes the
+             * payment with Pi.
+             */
+
+            options.onComplete?.(
+              result
+            );
+
+          }
+        )
+        .catch(
+          (error) => {
+
+            console.error(
+              "[PiPayment] Completion failed:",
+              error
+            );
+
+
+            options.onError?.(
+              error instanceof Error
+                ? error
+                : new Error(
+                    "Payment completion failed"
+                  )
+            );
+
+          }
         );
-      }
-    }
-  };
 
-  const onCancel = (paymentId: string): void => {
-    console.log("[v0] Payment cancelled:", paymentId);
-  };
+    };
 
-  const onError = (error: Error, payment?: PiPayment): void => {
-    console.error("[v0] Payment error:", error, payment);
-    if (options.onError) {
-      options.onError(error, payment);
-    }
-  };
+
+  // ---------------------------------------------------
+  // CANCEL
+  // ---------------------------------------------------
+
+  const onCancel =
+    (
+      paymentId: string
+    ): void => {
+
+      console.log(
+        "[PiPayment] Payment cancelled:",
+        paymentId
+      );
+
+
+      options.onCancel?.(
+        paymentId
+      );
+
+    };
+
+
+  // ---------------------------------------------------
+  // ERROR
+  // ---------------------------------------------------
+
+  const onError =
+    (
+      error: Error,
+      payment?: PiPayment
+    ): void => {
+
+      console.error(
+        "[PiPayment] Pi SDK error:",
+        error,
+        payment
+      );
+
+
+      options.onError?.(
+        error,
+        payment
+      );
+
+    };
+
 
   return {
     onReadyForServerApproval,
@@ -264,105 +504,131 @@ const createPaymentCallbacks = (
     onCancel,
     onError,
   };
-};
 
-// ============================================================================
-// Core Payment Function
-// ============================================================================
+}
 
-export const pay = async (options: PaymentOptions): Promise<void> => {
-  const paymentData: PiPaymentData = {
-    amount: options.amount,
-    memo: options.memo || `Payment of ${options.amount} Pi`,
-    metadata: options.metadata,
-  };
 
-  const callbacks = createPaymentCallbacks(options);
+// =====================================================
+// PAY
+// =====================================================
+
+export async function pay(
+  options: PaymentOptions
+): Promise<void> {
 
   try {
-    window.Pi.createPayment(paymentData, callbacks);
-  } catch (error) {
-    console.error("Failed to create payment:", error);
-    if (options.onError) {
-      options.onError(
-        error instanceof Error ? error : new Error("Failed to create payment")
+
+    // -------------------------------------------------
+    // Validate payment data
+    // -------------------------------------------------
+
+    if (
+      !Number.isFinite(
+        options.amount
+      ) ||
+      options.amount <= 0
+    ) {
+
+      throw new Error(
+        "Invalid payment amount"
       );
+
     }
-    throw error;
-  }
-};
 
-// ============================================================================
-// Incomplete Payment Recovery
-// ============================================================================
 
-export const checkIncompletePayments = async (
-  payment: PiPayment
-): Promise<void> => {
-  try {
-    console.log("Found incomplete payment:", payment.identifier);
+    if (!options.memo?.trim()) {
 
-    await api.post(BACKEND_URLS.COMPLETE_PAYMENT(payment.identifier), {
-      txid: payment.transaction.txid,
-    });
+      throw new Error(
+        "Payment memo is required"
+      );
+
+    }
+
+
+    // -------------------------------------------------
+    // REQUIRED:
+    //
+    // Ensure Pi.init() has fully completed BEFORE
+    // Pi.createPayment().
+    //
+    // piService caches initPromise, so this does not
+    // initialize Pi twice.
+    // -------------------------------------------------
+
+    await piService.init();
+
+
+    if (
+      typeof window ===
+        "undefined" ||
+      !window.Pi
+    ) {
+
+      throw new Error(
+        "Pi SDK is not available"
+      );
+
+    }
+    // -------------------------------------------------
+    // Payment request
+    // -------------------------------------------------
+
+    const paymentData:
+      PiPaymentData = {
+
+      amount:
+        options.amount,
+
+      memo:
+        options.memo,
+
+      metadata:
+        options.metadata,
+
+    };
+
+
+    console.log(
+      "[PiPayment] Creating payment:",
+      paymentData
+    );
+
+
+    // -------------------------------------------------
+    // U2A
+    // -------------------------------------------------
+
+    window.Pi.createPayment(
+      paymentData,
+      createPaymentCallbacks(
+        options
+      )
+    );
+
+
   } catch (error) {
-    console.error("Failed to notify incomplete payment:", error);
+
+    const normalizedError =
+      error instanceof Error
+        ? error
+        : new Error(
+            "Failed to create payment"
+          );
+
+
+    console.error(
+      "[PiPayment] createPayment failed:",
+      normalizedError
+    );
+
+
+    options.onError?.(
+      normalizedError
+    );
+
+
+    throw normalizedError;
+
   }
-};
 
-// ============================================================================
-// Initialize Global Payment Function
-// ============================================================================
-
-export const initializeGlobalPayment = (): void => {
-  if (typeof window !== "undefined") {
-    window.pay = pay;
-  }
-};
-
-// ============================================================================
-// React Hook: usePurchase
-// ============================================================================
-
-export const usePurchase = () => {
-  const makePurchase = async (
-  product: {
-    id: string;
-    name: string;
-    price: number;
-  }
-): Promise<{ transactionId: string }> => {
-    return new Promise((resolve, reject) => {
-      const options: PaymentOptions = {
-        amount: product.price,
-
-memo: `Purchase ${product.name}`,
-
-metadata: {
-
-  productId: product.id,
-
-  productName: product.name,
-
-  amount: product.price,
-},
-        onComplete: (metadata: PaymentMetadata) => {
-          resolve({
-            transactionId: metadata.transactionId || `txn_${Date.now()}`,
-          });
-        },
-        onError: (error: Error) => {
-          reject(error);
-        },
-      };
-
-      try {
-        pay(options).catch(reject);
-      } catch (error) {
-        reject(error);
-      }
-    });
-  };
-
-  return { makePurchase };
-};
+}
