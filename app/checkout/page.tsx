@@ -658,6 +658,37 @@ const handleMuxedPayment = async () => {
         {/* Payment Method */}
         <div>
           <h2 className="font-semibold mb-3">Payment Method</h2>
+          {/* Pi Coin Payment */}
+          <Card
+            className={`p-4 cursor-pointer mt-3 mb-3 border-2 transition ${
+              selectedMethod === "pi"
+                ? "border-blue-600 bg-blue-50"
+                : "border-gray-200"
+            }`}
+            onClick={() => setSelectedMethod("pi")}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`w-5 h-5 rounded-full border-2 flex-shrink-0 mt-1 ${
+                  selectedMethod === "pi"
+                    ? "border-blue-600 bg-blue-600"
+                    : "border-gray-300"
+                }`}
+              >
+                {selectedMethod === "pi" && (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                  </div>
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold">Pi Wallet</p>
+                <p className="text-sm text-gray-600">
+                  Fast and secure payment using Pi Wallet
+                </p>
+              </div>
+            </div>
+          </Card>
 
           {/* Muxed Wallet */}
           <Card
@@ -686,38 +717,6 @@ const handleMuxedPayment = async () => {
                 <p className="font-semibold">Muxed Wallet</p>
                 <p className="text-sm text-gray-600">
                   Fast and secure payment using Muxed Wallet
-                </p>
-              </div>
-            </div>
-          </Card>
-
-                    {/* Pi Coin Payment */}
-          <Card
-            className={`p-4 cursor-pointer mt-3 mb-3 border-2 transition ${
-              selectedMethod === "pi"
-                ? "border-blue-600 bg-blue-50"
-                : "border-gray-200"
-            }`}
-            onClick={() => setSelectedMethod("pi")}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className={`w-5 h-5 rounded-full border-2 flex-shrink-0 mt-1 ${
-                  selectedMethod === "pi"
-                    ? "border-blue-600 bg-blue-600"
-                    : "border-gray-300"
-                }`}
-              >
-                {selectedMethod === "pi" && (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                  </div>
-                )}
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold">Pi Wallet</p>
-                <p className="text-sm text-gray-600">
-                  Fast and secure payment using Pi Wallet
                 </p>
               </div>
             </div>
