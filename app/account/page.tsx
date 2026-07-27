@@ -176,9 +176,9 @@ export default function AccountPage(){
   ]);
 
   // create wallet
-  async function handleCreateWallet(){
+  async function handleCreateWallet() {
 
-    try{
+    try {
 
       setCreating(true);
 
@@ -188,16 +188,20 @@ export default function AccountPage(){
       setWallet(
         newWallet
       );
-      }catch(err:any){
+
+      // wallet created successfully
+      await loadBalance();
+
+    } catch (err: any) {
 
       console.error(err);
 
       alert(
-        err.message||
+        err.message ||
         "Create wallet failed"
       );
 
-    }finally{
+    } finally {
 
       setCreating(false);
     }
