@@ -17,6 +17,22 @@ const GET_USER_API=
   "https://payofpi.click/payment-backend/api-proxy/get-user";
 
 const COUNTRIES=[
+  "Afghanistan","Albania","Algeria","Andorra","Angola","Argentina","Armenia",
+  "Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados",
+  "Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia and Herzegovina",
+  "Botswana","Brazil","Brunei","Bulgaria","Cambodia","Cameroon","Canada","Chile",
+  "China","Colombia","Costa Rica","Croatia","Cuba","Cyprus","Czech Republic",
+  "Denmark","Dominican Republic","Ecuador","Egypt","El Salvador","Estonia","Ethiopia",
+  "Finland","France","Georgia","Germany","Ghana","Greece","Guatemala","Honduras",
+  "Hong Kong","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland",
+  "Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Korea, South",
+  "Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lithuania","Luxembourg",
+  "Madagascar","Malaysia","Maldives","Mali","Malta","Mexico","Moldova","Monaco",
+  "Mongolia","Morocco","Mozambique","Myanmar","Namibia","Nepal","Netherlands",
+  "New Zealand","Nicaragua","Niger","Nigeria","North Macedonia","Norway","Oman",
+  "Pakistan","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland",
+  "Portugal","Qatar","Romania","Russia","Rwanda","Saudi Arabia","Senegal","Serbia",
+  "Singapore","Slovakia","Slovenia","South Africa","Spain","Sri Lanka","Sudan",
   "Sweden","Switzerland","Syria","Taiwan","Tajikistan","Tanzania","Thailand",
   "Tunisia","Turkey","Uganda","Ukraine","United Arab Emirates","United Kingdom",
   "United States","Uruguay","Uzbekistan","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"
