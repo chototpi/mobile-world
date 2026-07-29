@@ -4,6 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { AppWrapper } from "@/components/app-wrapper";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next"
 import Eruda from "@/components/eruda";
 
 export const metadata: Metadata = {
@@ -21,15 +22,16 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <style>{`
-html {
-  font-family: ${GeistSans.style.fontFamily};
-  --font-sans: ${GeistSans.variable};
-  --font-mono: ${GeistMono.variable};
-}
+          html {
+            font-family: ${GeistSans.style.fontFamily};
+            --font-sans: ${GeistSans.variable};
+            --font-mono: ${GeistMono.variable};
+          }
         `}</style>
       </head>
       <body>
         <AppWrapper>{children}</AppWrapper>
+        <Analytics />
       </body>
     </html>
   );
