@@ -98,7 +98,7 @@ useEffect(()=>{
       // fetch latest products
       const response =
         await fetch(
-          "https://cramp-broadside-groggily.ngrok-free.dev/mw/api/products"
+          "https://payofpi.click/payment-backend/api-proxy/products"
         );
 
       const data =
