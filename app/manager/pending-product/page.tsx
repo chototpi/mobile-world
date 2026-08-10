@@ -100,7 +100,7 @@ export default function ManagerPage(){
 
         const response =
           await fetch(
-            "https://payofpi.click/payment-backend/api-proxy/pending-products"
+            "/payment-backend/api-proxy/pending-products"
           );
 
         const data =
@@ -135,7 +135,7 @@ export default function ManagerPage(){
       try{
 
         await fetch(
-          "https://payofpi.click/payment-backend/api-proxy/active-product",
+          "/payment-backend/api-proxy/active-product",
           {
             method:"POST",
 
@@ -165,7 +165,7 @@ export default function ManagerPage(){
       try{
 
         await fetch(
-          `https://payofpi.click/payment-backend/api-proxy/delete-product/${id}`,
+          `/payment-backend/api-proxy/delete-product/${id}`,
           {
             method:"DELETE"
           }
@@ -207,7 +207,7 @@ export default function ManagerPage(){
       try{
 
         await fetch(
-          "https://payofpi.click/payment-backend/api-proxy/edit-product",
+          "/payment-backend/api-proxy/edit-product",
           {
             method:"POST",
 

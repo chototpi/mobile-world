@@ -98,7 +98,7 @@ useEffect(()=>{
       // fetch latest products
       const response =
         await fetch(
-          "https://payofpi.click/payment-backend/api-proxy/products"
+          "/payment-backend/api-proxy/products"
         );
 
       const data =

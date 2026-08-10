@@ -96,7 +96,7 @@ export default function CheckoutPage(){
 
                   const response=
                     await fetch(
-                      `https://payofpi.click/payment-backend/api-proxy/product/${item.productId||item.id}`
+                      `/payment-backend/api-proxy/product/${item.productId||item.id}`
                     );
 
                   const data=

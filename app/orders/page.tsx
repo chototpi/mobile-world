@@ -13,7 +13,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 const API_URL=
-  "https://payofpi.click/payment-backend/api-proxy/get-orders";
+  "/payment-backend/api-proxy/get-orders";
 
 interface Order{
   id:number;

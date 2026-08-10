@@ -38,7 +38,7 @@ export default function ProductPage(){
 
         const response=
           await fetch(
-            `https://payofpi.click/payment-backend/api-proxy/product/${id}`
+            `/payment-backend/api-proxy/product/${id}`
           );
 
         const data=
