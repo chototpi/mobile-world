@@ -1,5 +1,5 @@
 const API_BASE =
-  "https://payofpi.click/payment-backend/api-proxy";
+  "/payment-backend/api-proxy";
 
 // get existing wallet
 export async function getMuxedWallet() {
